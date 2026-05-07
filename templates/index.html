@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>BREAK | Cost-Volume-Profit Tool</title>
+  <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+
+  <aside class="rail">
+    <div class="rail-day">06</div>
+    <div class="rail-vert">DAY / SIX / BREAK / 2026</div>
+    <div class="rail-dot"></div>
+  </aside>
+
+  <header class="masthead">
+    <div class="masthead-row">
+      <h1 class="wordmark">
+        <span class="w-letter">B</span><span class="w-letter">R</span><span class="w-letter">E</span><span class="w-letter">A</span><span class="w-letter">K</span><span class="w-slash">/</span>
+      </h1>
+      <div class="masthead-meta">
+        <div class="meta-line"><span class="meta-k">VOL</span><span class="meta-v">06</span></div>
+        <div class="meta-line"><span class="meta-k">ISSUE</span><span class="meta-v">CVP</span></div>
+        <div class="meta-line"><span class="meta-k">DEEPSEEK</span>
+          <span class="meta-v {% if env_key_ok %}is-ok{% else %}is-warn{% endif %}">
+            {% if env_key_ok %}LIVE{% else %}NO KEY{% endif %}
+          </span>
+        </div>
+      </div>
+    </div>
+    <div class="masthead-strap">
+      <span class="strap-tag">COST &middot; VOLUME &middot; PROFIT</span>
+      <span class="strap-rule"></span>
+      <span class="strap-tag strap-tag-alt">A FOUNDER&rsquo;S BREAK-EVEN MEMO</span>
+    </div>
+  </header>
+
+  <main class="page">
+
+    <section class="dock">
+      <div class="dock-stamp">
+        <div class="stamp-num">01</div>
+        <div class="stamp-label">CONTROL</div>
+      </div>
+      <h2 class="dock-h">Inputs</h2>
+      <p class="dock-sub">Choose a sample or upload your own .xlsx (max {{ max_upload_mb }}MB). The maths is deterministic; the AI verdict is one DeepSeek call.</p>
+
+      <form id="analyse-form" autocomplete="off">
+
+        <fieldset class="brick">
+          <legend class="brick-leg"><span class="brick-num">01a</span> Source</legend>
+          <label class="rad">
+            <input type="radio" name="source" value="samples" checked>
+            <span class="rad-mark"></span>
+            <span class="rad-text">Bundled sample</span>
+          </label>
+          <label class="rad">
+            <input type="radio" name="source" value="upload">
+            <span class="rad-mark"></span>
+            <span class="rad-text">Upload workbook</span>
+          </label>
+        </fieldset>
+
+        <fieldset class="brick" id="sample-card">
+          <legend class="brick-leg"><span class="brick-num">01b</span> Sample</legend>
+          <select name="sample_id" id="sample-select" class="ctrl">
+            {% for s in samples %}
+              <option value="{{ s.id }}">{{ s.label }}</option>
+            {% endfor %}
+            {% if not samples %}
+              <option value="" disabled selected>(no samples on disk yet)</option>
+            {% endif %}
+          </select>
+        </fieldset>
+
+        <fieldset class="brick" id="upload-card" hidden>
+          <legend class="brick-leg"><span class="brick-num">01c</span> Upload</legend>
+          <input type="file" name="file" id="file-input" accept=".xlsx" class="ctrl">
+          <p class="hint">metadata + unit_economics sheets, two-column key/value. Optional: products, step_costs.</p>
+        </fieldset>
+
+        <fieldset class="brick">
+          <legend class="brick-leg"><span class="brick-num">01d</span> AI</legend>
+          <label class="chk">
+            <input type="checkbox" name="skip_ai" id="skip-ai">
+            <span class="chk-mark"></span>
+            <span class="chk-text">Skip AI commentary (free, deterministic only)</span>
+          </label>
+          <label class="field">
+            <span class="field-label">Model override (optional)</span>
+            <input type="text" name="model" id="model" placeholder="deepseek-chat" class="ctrl">
+          </label>
+        </fieldset>
+
+        <button type="submit" id="run-btn" class="cta">
+          <span class="cta-text">RUN ANALYSIS</span>
+          <span class="cta-arrow">&rarr;</span>
+        </button>
+        <p id="status-line" class="status" aria-live="polite"></p>
+      </form>
+
+      <div class="saved-runs" id="saved-runs-block" hidden>
+        <div class="brick-leg" style="margin-top:24px;border-top:1px solid var(--ink);padding-top:14px;">
+          <span class="brick-num">RUN</span> Saved scenarios
+        </div>
+        <ul class="saved-list" id="saved-list"></ul>
+        <div class="compare-pick" id="compare-pick" hidden>
+          <p class="hint">Select two runs and compare:</p>
+          <button type="button" id="compare-btn" class="ghost-btn">Compare selected</button>
+        </div>
+      </div>
+
+    </section>
+
+    <section class="canvas">
+
+      <article id="empty-state" class="empty">
+        <div class="empty-numeral">06</div>
+        <div class="empty-rule"></div>
+        <p class="empty-lede">Pick a sample on the left, then run the analysis. The verdict prints here.</p>
+        <ul class="empty-bullets">
+          <li><span class="b-num">i.</span> Break-even units &amp; revenue from the unit economics</li>
+          <li><span class="b-num">ii.</span> +/-20% sensitivity per variable, sorted into a tornado</li>
+          <li><span class="b-num">iii.</span> One DeepSeek call (~$0.0001) for the CFO verdict</li>
+          <li><span class="b-num">iv.</span> Live what-if sliders, multi-product mix, step-cost ladder, capacity overlay, peer benchmark</li>
+        </ul>
+      </article>
+
+      <div id="error-card" class="error-card hidden"></div>
+
+      <section id="result-pane" class="result-pane hidden">
+
+        <div class="run-meta">
+          <span class="run-k">RUN</span>
+          <span class="run-v" id="run-company">--</span>
+          <span class="run-sep">&middot;</span>
+          <span class="run-v" id="run-period">--</span>
+          <span class="run-sep">&middot;</span>
+          <span class="run-v" id="run-currency">--</span>
+          <span class="run-spacer"></span>
+          <span class="run-id-wrap">
+            <span class="run-k run-k-alt">ID</span>
+            <span class="run-v" id="run-id">--</span>
+          </span>
+          <button type="button" id="save-run-btn" class="micro-btn">SAVE</button>
+          <button type="button" id="share-btn" class="micro-btn">SHARE URL</button>
+          <button type="button" id="print-btn" class="micro-btn">PRINT</button>
+        </div>
+
+        <div id="hero" class="hero hidden">
+          <div class="hero-prime">
+            <div class="hero-eye">
+              <span class="hero-num">02</span>
+              <span class="hero-label">BREAK-EVEN</span>
+              <span class="hero-toggle" id="cash-toggle-wrap" hidden>
+                <label class="mini-toggle">
+                  <input type="checkbox" id="cash-toggle">
+                  <span>Cash basis</span>
+                </label>
+              </span>
+            </div>
+            <div class="hero-numeral" id="hero-be">--</div>
+            <div class="hero-foot">
+              <span class="hero-foot-k">UNITS PER PERIOD</span>
+              <span class="hero-foot-rev" id="hero-be-rev">--</span>
+            </div>
+          </div>
+
+          <div class="hero-stack">
+            <div class="stat">
+              <div class="stat-k">CONTRIBUTION MARGIN</div>
+              <div class="stat-v" id="hero-cm">--</div>
+              <div class="stat-foot" id="hero-cm-per-unit">--</div>
+              <div class="bench-bar" id="bench-bar" hidden>
+                <div class="bench-track">
+                  <div class="bench-band" id="bench-band"></div>
+                  <div class="bench-marker" id="bench-marker"></div>
+                </div>
+                <div class="bench-meta" id="bench-meta"></div>
+              </div>
+            </div>
+            <div class="stat">
+              <div class="stat-k">MARGIN OF SAFETY</div>
+              <div class="stat-v" id="hero-mos">--</div>
+              <div class="stat-foot" id="hero-mos-foot">vs current volume</div>
+            </div>
+            <div class="stat">
+              <div class="stat-k">AI COST</div>
+              <div class="stat-v" id="hero-cost">$0.00000</div>
+              <div class="stat-foot" id="hero-elapsed">--</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="capacity-card" class="capacity-card hidden">
+          <span class="cap-pill" id="cap-pill">REACHABLE</span>
+          <span class="cap-text" id="cap-text">--</span>
+        </div>
+
+        <div id="covenant-card" class="capacity-card hidden">
+          <span class="cap-pill" id="cov-pill">OK</span>
+          <span class="cap-text" id="cov-text">--</span>
+        </div>
+
+        <div id="ai-card" class="ai-card hidden">
+          <div class="ai-corner">03 / VERDICT</div>
+          <div class="ai-quote-mark">&ldquo;</div>
+          <div class="ai-headline" id="ai-headline"></div>
+          <div class="ai-summary" id="ai-summary"></div>
+          <div class="ai-grid">
+            <div class="ai-block">
+              <div class="ai-label"><span class="dot dot-magenta"></span> Risks</div>
+              <ul id="ai-risks"></ul>
+            </div>
+            <div class="ai-block">
+              <div class="ai-label"><span class="dot dot-purple"></span> Actions</div>
+              <ul id="ai-actions"></ul>
+            </div>
+          </div>
+
+          <div class="ai-followup">
+            <div class="ai-label"><span class="dot dot-magenta"></span> Ask a follow-up</div>
+            <div class="followup-row">
+              <input type="text" id="followup-input" class="ctrl"
+                     placeholder="e.g. what if I raised price 5% but lost 10% volume?">
+              <button type="button" id="followup-btn" class="ghost-btn">ASK</button>
+            </div>
+            <div id="followup-answer" class="followup-answer" hidden></div>
+            <p id="followup-status" class="hint"></p>
+          </div>
+        </div>
+
+        <div id="chart-card" class="chart-card hidden">
+          <div class="card-head">
+            <span class="card-num">04</span>
+            <span class="card-title">BREAK-EVEN PROFILE</span>
+            <span class="card-meta">Revenue vs total cost across volume</span>
+          </div>
+          <div id="chart-host" class="chart-host"></div>
+          <div class="legend">
+            <span class="lg-key"><i class="lg-line lg-purple"></i>Revenue</span>
+            <span class="lg-key"><i class="lg-line lg-ink"></i>Total cost</span>
+            <span class="lg-key"><i class="lg-line lg-grey lg-dash"></i>Fixed cost</span>
+            <span class="lg-key"><i class="lg-dot"></i>Break-even</span>
+            <span class="lg-key" id="lg-capacity" hidden><i class="lg-line lg-magenta lg-dash"></i>Capacity</span>
+          </div>
+        </div>
+
+        <div id="whatif-card" class="whatif-card hidden">
+          <div class="card-head">
+            <span class="card-num">05</span>
+            <span class="card-title">WHAT-IF LIVE</span>
+            <span class="card-meta">Drag to recompute. Free, instant, no AI.</span>
+            <button type="button" id="whatif-reset" class="micro-btn">RESET</button>
+          </div>
+          <div class="slider-row">
+            <label class="slider">
+              <span class="slider-k">Price per unit</span>
+              <input type="range" id="sl-price" min="0" max="2" step="0.01" value="1">
+              <span class="slider-v" id="sl-price-v">--</span>
+            </label>
+            <label class="slider">
+              <span class="slider-k">Variable cost / unit</span>
+              <input type="range" id="sl-vc" min="0" max="2" step="0.01" value="1">
+              <span class="slider-v" id="sl-vc-v">--</span>
+            </label>
+            <label class="slider">
+              <span class="slider-k">Fixed cost</span>
+              <input type="range" id="sl-fixed" min="0" max="2" step="0.01" value="1">
+              <span class="slider-v" id="sl-fixed-v">--</span>
+            </label>
+            <label class="slider">
+              <span class="slider-k">Current volume</span>
+              <input type="range" id="sl-vol" min="0" max="2" step="0.01" value="1">
+              <span class="slider-v" id="sl-vol-v">--</span>
+            </label>
+          </div>
+          <div class="whatif-results">
+            <div class="wf-stat">
+              <div class="wf-k">BE units</div>
+              <div class="wf-v" id="wf-be">--</div>
+              <div class="wf-d" id="wf-be-d">--</div>
+            </div>
+            <div class="wf-stat">
+              <div class="wf-k">CM ratio</div>
+              <div class="wf-v" id="wf-cm">--</div>
+              <div class="wf-d" id="wf-cm-d">--</div>
+            </div>
+            <div class="wf-stat">
+              <div class="wf-k">Margin of safety</div>
+              <div class="wf-v" id="wf-mos">--</div>
+              <div class="wf-d" id="wf-mos-d">--</div>
+            </div>
+            <div class="wf-stat">
+              <div class="wf-k">Profit at current volume</div>
+              <div class="wf-v" id="wf-profit">--</div>
+              <div class="wf-d" id="wf-profit-d">--</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="targets-card" class="targets-card hidden">
+          <div class="card-head">
+            <span class="card-num">06</span>
+            <span class="card-title">TARGET PROFIT CALCULATOR</span>
+            <span class="card-meta">Three modes: profit from volume, volume from profit, price from margin.</span>
+          </div>
+          <div class="target-grid">
+            <div class="target-mode">
+              <div class="mode-k">PROFIT FROM VOLUME</div>
+              <div class="mode-row">
+                <span class="mode-lab">Volume (units)</span>
+                <input type="number" id="t-vol" class="ctrl mini">
+              </div>
+              <div class="mode-out" id="t-vol-out">profit: --</div>
+            </div>
+            <div class="target-mode">
+              <div class="mode-k">VOLUME FROM PROFIT</div>
+              <div class="mode-row">
+                <span class="mode-lab">Target profit</span>
+                <input type="number" id="t-prof" class="ctrl mini">
+              </div>
+              <div class="mode-out" id="t-prof-out">units: --</div>
+            </div>
+            <div class="target-mode">
+              <div class="mode-k">PRICE FROM TARGET MARGIN</div>
+              <div class="mode-row">
+                <span class="mode-lab">Target CM ratio</span>
+                <input type="number" id="t-margin" class="ctrl mini" step="0.01" placeholder="0.65">
+              </div>
+              <div class="mode-out" id="t-margin-out">price: --</div>
+            </div>
+          </div>
+        </div>
+
+        <div id="comp3-card" class="comp3-card hidden">
+          <div class="card-head">
+            <span class="card-num">07</span>
+            <span class="card-title">COMPARE PRICES</span>
+            <span class="card-meta">Three price points side by side. Same fixed and vc.</span>
+          </div>
+          <div class="comp3-grid" id="comp3-grid">
+            <div class="comp3-cell" data-i="0">
+              <input type="number" class="ctrl comp3-input" data-role="price" step="0.01" placeholder="Price A">
+              <div class="comp3-out">
+                <div><span class="cmp-k">BE units</span><span class="cmp-v" data-out="be">--</span></div>
+                <div><span class="cmp-k">CM ratio</span><span class="cmp-v" data-out="cm">--</span></div>
+                <div><span class="cmp-k">MoS</span><span class="cmp-v" data-out="mos">--</span></div>
+              </div>
+            </div>
+            <div class="comp3-cell" data-i="1">
+              <input type="number" class="ctrl comp3-input" data-role="price" step="0.01" placeholder="Price B">
+              <div class="comp3-out">
+                <div><span class="cmp-k">BE units</span><span class="cmp-v" data-out="be">--</span></div>
+                <div><span class="cmp-k">CM ratio</span><span class="cmp-v" data-out="cm">--</span></div>
+                <div><span class="cmp-k">MoS</span><span class="cmp-v" data-out="mos">--</span></div>
+              </div>
+            </div>
+            <div class="comp3-cell" data-i="2">
+              <input type="number" class="ctrl comp3-input" data-role="price" step="0.01" placeholder="Price C">
+              <div class="comp3-out">
+                <div><span class="cmp-k">BE units</span><span class="cmp-v" data-out="be">--</span></div>
+                <div><span class="cmp-k">CM ratio</span><span class="cmp-v" data-out="cm">--</span></div>
+                <div><span class="cmp-k">MoS</span><span class="cmp-v" data-out="mos">--</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="multi-card" class="multi-card hidden">
+          <div class="card-head">
+            <span class="card-num">08</span>
+            <span class="card-title">MULTI-PRODUCT MIX</span>
+            <span class="card-meta">Drag mix sliders to see blended BE shift in real time.</span>
+            <button type="button" id="mix-reset" class="micro-btn">RESET</button>
+          </div>
+          <div class="multi-summary" id="multi-summary"></div>
+          <div class="mix-sliders" id="mix-sliders"></div>
+          <table class="multi-table" id="multi-table"></table>
+        </div>
+
+        <div id="step-card" class="step-card hidden">
+          <div class="card-head">
+            <span class="card-num">09</span>
+            <span class="card-title">STEP-COST LADDER</span>
+            <span class="card-meta">BE recomputes inside each fixed-cost segment.</span>
+          </div>
+          <table class="step-table" id="step-table"></table>
+        </div>
+
+        <div id="sens-card" class="sens-card hidden">
+          <div class="card-head">
+            <span class="card-num">10</span>
+            <span class="card-title">SENSITIVITY GRID</span>
+            <span class="card-meta">Single-variable shocks at +/-20% / +/-10% / 0%</span>
+          </div>
+          <table class="sens-table" id="sens-table"></table>
+        </div>
+
+        <div id="heat-card" class="heat-card hidden">
+          <div class="card-head">
+            <span class="card-num">11</span>
+            <span class="card-title">2D HEATMAP</span>
+            <span class="card-meta">BE units across price (rows) and variable cost (cols).</span>
+          </div>
+          <div id="heat-host" class="heat-host"></div>
+          <div class="heat-legend">
+            <span class="hl-k">LOW BE</span>
+            <span class="hl-bar"></span>
+            <span class="hl-k">HIGH BE</span>
+          </div>
+        </div>
+
+        <div id="mc-card" class="mc-card hidden">
+          <div class="card-head">
+            <span class="card-num">12</span>
+            <span class="card-title">MONTE CARLO</span>
+            <span class="card-meta">N runs over triangular shocks on price, vc, fixed.</span>
+            <span id="mc-controls" class="mc-controls">
+              <label class="mini-toggle">
+                <span>SPAN</span>
+                <select id="mc-span" class="ctrl mini">
+                  <option value="0.10">+/-10%</option>
+                  <option value="0.20" selected>+/-20%</option>
+                  <option value="0.30">+/-30%</option>
+                </select>
+              </label>
+              <label class="mini-toggle">
+                <span>RUNS</span>
+                <select id="mc-runs" class="ctrl mini">
+                  <option value="2000">2k</option>
+                  <option value="4000" selected>4k</option>
+                  <option value="10000">10k</option>
+                </select>
+              </label>
+              <button type="button" id="mc-rerun" class="micro-btn">RUN</button>
+            </span>
+          </div>
+          <div class="mc-summary" id="mc-summary"></div>
+          <div id="mc-host" class="mc-host"></div>
+        </div>
+
+        <div id="time-card" class="time-card hidden">
+          <div class="card-head">
+            <span class="card-num">13</span>
+            <span class="card-title">TIME-PHASED BREAK-EVEN</span>
+            <span class="card-meta">Cumulative BE crossing over your planned volume curve.</span>
+          </div>
+          <div class="time-summary" id="time-summary"></div>
+          <div id="time-host" class="time-host"></div>
+          <table class="time-table" id="time-table"></table>
+        </div>
+
+        <details id="working-card" class="working-card hidden">
+          <summary class="working-head">
+            <span class="card-num">14</span>
+            <span class="card-title">SHOW THE WORKING</span>
+            <span class="card-meta">For finance students and audit purposes.</span>
+          </summary>
+          <div id="working-body" class="working-body"></div>
+        </details>
+
+        <div id="compare-card" class="compare-card hidden">
+          <div class="card-head">
+            <span class="card-num">15</span>
+            <span class="card-title">COMPARE TWO RUNS</span>
+            <span class="card-meta">Pick two saved runs in the dock and click Compare.</span>
+          </div>
+          <table class="compare-table" id="compare-table"></table>
+        </div>
+
+        <div id="downloads" class="downloads hidden">
+          <div class="dl-head">
+            <span class="card-num">16</span>
+            <span class="card-title">EXPORT</span>
+          </div>
+          <div class="dl-row">
+            <a id="dl-xlsx" class="dl"><span class="dl-tag">XLSX</span><span class="dl-name">Workbook</span></a>
+            <a id="dl-csv"  class="dl"><span class="dl-tag">CSV</span><span class="dl-name">Sensitivity</span></a>
+            <a id="dl-pdf"  class="dl"><span class="dl-tag">PDF</span><span class="dl-name">3-page memo</span></a>
+            <a id="dl-pptx" class="dl"><span class="dl-tag">PPTX</span><span class="dl-name">Deck</span></a>
+          </div>
+        </div>
+
+      </section>
+
+    </section>
+  </main>
+
+  <footer class="colophon">
+    <span class="col-mark">/</span>
+    <span class="col-text">Local-only on 127.0.0.1:1006. No data leaves your machine except the AI digest.</span>
+    <span class="col-spacer"></span>
+    <span class="col-text">SAFWAN AHMED &middot; 30 DAY FINANCE + AI SPRINT</span>
+  </footer>
+
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
